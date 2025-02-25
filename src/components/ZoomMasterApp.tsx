@@ -77,8 +77,8 @@ export function ZoomMasterApp() {
       <RecordingCanvas />
       <VideoPlayback />
 
-      {/* Global styles */}
-      <style jsx global>{`
+      {/* Global styles as regular style tag instead of jsx global */}
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes particleGlow {
           0% { opacity: 0.6; transform: scale(1); }
           50% { opacity: 0.9; transform: scale(1.3); }
@@ -88,7 +88,7 @@ export function ZoomMasterApp() {
           from { opacity: 1; }
           to { opacity: 0; }
         }
-      `}</style>
+      `}} />
     </div>
   );
 }
