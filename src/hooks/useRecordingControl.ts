@@ -135,7 +135,10 @@ export function useRecordingControl() {
         mimeType: "video/webm; codecs=vp9,opus",
       });
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) setRecordedChunks((prev) => [...prev, e.data]);
+        if (e.data.size > 0) {
+          // Fixed: Type issue by explicitly typing prev as Blob[] array
+          setRecordedChunks((prev: Blob[]) => [...prev, e.data]);
+        }
       };
       recorder.onstop = () => {
         setIsRecording(false);

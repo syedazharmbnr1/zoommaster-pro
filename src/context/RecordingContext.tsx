@@ -4,6 +4,8 @@ import React, { createContext, useContext, useState, useRef, ReactNode } from "r
 import { ZoomEvent, Caption } from "../types";
 import { mediaRecorderRef, generateSessionId } from "../utils/mediaUtils";
 
+type SetStateAction<T> = T | ((prevState: T) => T);
+
 interface RecordingContextType {
   // Recording state
   isRecording: boolean;
@@ -35,16 +37,16 @@ interface RecordingContextType {
   // Actions
   setIsRecording: (value: boolean) => void;
   setIsPaused: (value: boolean) => void;
-  setRecordedChunks: (chunks: Blob[]) => void;
+  setRecordedChunks: (chunks: SetStateAction<Blob[]>) => void;
   setVideoURL: (url: string | null) => void;
   setDownloadURL: (url: string | null) => void;
   setSessionId: (id: string) => void;
   setRecordStartTime: (time: number | null) => void;
-  setPauseTime: (time: number) => void;
-  setCaptions: (captions: Caption[] | ((prev: Caption[]) => Caption[])) => void;
+  setPauseTime: (time: number | SetStateAction<number>) => void;
+  setCaptions: (captions: SetStateAction<Caption[]>) => void;
   setIsRecognitionRunning: (value: boolean) => void;
   setRecognition: (recognition: SpeechRecognition | null) => void;
-  setSmartZoomData: (data: ZoomEvent[] | ((prev: ZoomEvent[]) => ZoomEvent[])) => void;
+  setSmartZoomData: (data: SetStateAction<ZoomEvent[]>) => void;
   setRetrievedData: (data: ZoomEvent[]) => void;
   setCapturedWidth: (width: number | null) => void;
   setCapturedHeight: (height: number | null) => void;
