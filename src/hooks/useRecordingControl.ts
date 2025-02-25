@@ -4,6 +4,12 @@ import { mediaRecorderRef, generateSessionId, createRecordingBlob } from "../uti
 import { useConfig } from "../context/ConfigContext";
 import { useZoom } from "../context/ZoomContext";
 
+// Define extended interface for DisplayMediaOptions to include cursor property
+interface DisplayMediaOptions {
+  video?: { cursor?: string } & MediaTrackConstraints;
+  audio?: boolean | MediaTrackConstraints;
+}
+
 /**
  * Hook for controlling the recording process
  */
@@ -67,10 +73,11 @@ export function useRecordingControl() {
     try {
       if (isRecording || mediaRecorderRef.current) return;
 
+      // Use the extended interface with type assertion for getDisplayMedia
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { cursor: "always" },
         audio: true,
-      });
+      } as DisplayMediaOptions);
 
       const webcamStream = isWebcamOn
         ? await navigator.mediaDevices.getUserMedia({
