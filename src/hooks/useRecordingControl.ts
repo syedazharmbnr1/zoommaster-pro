@@ -120,7 +120,8 @@ export function useRecordingControl() {
           const screenSource = audioContext.createMediaStreamSource(screenStream);
           screenSource.connect(destination);
         }
-        if (webcamStream?.getAudioTracks().length > 0) {
+        // Fixed: Added proper null check before accessing getAudioTracks method
+        if (webcamStream && webcamStream.getAudioTracks().length > 0) {
           const webcamSource = audioContext.createMediaStreamSource(webcamStream);
           webcamSource.connect(destination);
         }
