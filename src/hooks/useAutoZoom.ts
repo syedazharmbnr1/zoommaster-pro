@@ -27,6 +27,9 @@ export function useAutoZoom() {
   } = useRecording();
 
   useEffect(() => {
+    // Only run in browser environment
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!isRecording || zoomMode !== "auto" || !hiddenVideoRef.current) return;
 
@@ -52,15 +55,19 @@ export function useAutoZoom() {
       const selection = document.getSelection();
       const activeElement = document.activeElement;
 
-      if (selection?.toString().length > 0) {
+      // Fixed the TypeScript error by adding robust null checks
+      if (selection && typeof selection.toString === 'function' && selection.toString().length > 0) {
         newCursorIcon = "hand";
-        const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          fracX = Math.max(0, Math.min(1, (rect.left + rect.width / 2) / window.screen.width));
-          fracY = Math.max(0, Math.min(1, (rect.top + rect.height / 2) / window.screen.height));
-          targetZoomScale = 3.0;
-          confidence = 0.95;
+        // Make sure selection has at least one range before accessing it
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            fracX = Math.max(0, Math.min(1, (rect.left + rect.width / 2) / window.screen.width));
+            fracY = Math.max(0, Math.min(1, (rect.top + rect.height / 2) / window.screen.height));
+            targetZoomScale = 3.0;
+            confidence = 0.95;
+          }
         }
       } else if (e.buttons === 1) {
         newCursorIcon = "grabbing";
@@ -136,5 +143,5 @@ export function useAutoZoom() {
       window.removeEventListener("selectstart", handleMouseMove);
       window.removeEventListener("focus", handleMouseMove, true);
     };
-  }, [isRecording, zoomMode, zoomScale, recordStartTime, pauseTime, sessionId, isPaused]);
+  }, [isRecording, zoomMode, zoomScale, recordStartTime, pauseTime, sessionId, isPaused, gridSizeX, gridSizeY, hiddenVideoRef, setCursorIcon, setSmartZoomData, setZoomCenter, setZoomScale]);
 }
