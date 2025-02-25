@@ -19,7 +19,8 @@ export function useSpeechRecognition() {
   const { isSpeechOn } = useConfig();
 
   useEffect(() => {
-    if (!window || !("webkitSpeechRecognition" in window) || !isSpeechOn) return;
+    // Only run in browser environment and check if speech recognition is available
+    if (typeof window === 'undefined' || !("webkitSpeechRecognition" in window) || !isSpeechOn) return;
 
     const recog = new (window as any).webkitSpeechRecognition() as SpeechRecognition;
     recog.continuous = true;
@@ -76,7 +77,7 @@ export function useSpeechRecognition() {
       recog.stop();
       setIsRecognitionRunning(false);
     };
-  }, [isRecording, isPaused, isSpeechOn]);
+  }, [isRecording, isPaused, isSpeechOn, isRecognitionRunning, setIsRecognitionRunning, setRecognition, setCaptions]);
 
   return { isRecognitionRunning };
 }

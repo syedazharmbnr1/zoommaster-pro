@@ -46,7 +46,7 @@ export function useRecordingControl() {
       setVideoURL(newUrl);
       setDownloadURL(newUrl);
     }
-  }, [isRecording, recordedChunks]);
+  }, [isRecording, recordedChunks, setVideoURL, setDownloadURL]);
 
   // Cleanup resources when component unmounts
   useEffect(() => {
@@ -58,6 +58,12 @@ export function useRecordingControl() {
   }, [webcamStream]);
 
   const startRecording = async () => {
+    // Only run this in browser environment
+    if (typeof window === 'undefined' || !window.navigator?.mediaDevices) {
+      console.error("Browser APIs not available");
+      return;
+    }
+    
     try {
       if (isRecording || mediaRecorderRef.current) return;
 
@@ -98,20 +104,23 @@ export function useRecordingControl() {
       const canvasStream = canvas.captureStream(30);
       let combinedStream = canvasStream;
 
-      const audioContext = new AudioContext();
-      const destination = audioContext.createMediaStreamDestination();
+      // Only use AudioContext in browser environment
+      if (typeof window !== 'undefined' && 'AudioContext' in window) {
+        const audioContext = new AudioContext();
+        const destination = audioContext.createMediaStreamDestination();
 
-      if (screenStream.getAudioTracks().length > 0) {
-        const screenSource = audioContext.createMediaStreamSource(screenStream);
-        screenSource.connect(destination);
-      }
-      if (webcamStream?.getAudioTracks().length > 0) {
-        const webcamSource = audioContext.createMediaStreamSource(webcamStream);
-        webcamSource.connect(destination);
-      }
+        if (screenStream.getAudioTracks().length > 0) {
+          const screenSource = audioContext.createMediaStreamSource(screenStream);
+          screenSource.connect(destination);
+        }
+        if (webcamStream?.getAudioTracks().length > 0) {
+          const webcamSource = audioContext.createMediaStreamSource(webcamStream);
+          webcamSource.connect(destination);
+        }
 
-      if (destination.stream.getAudioTracks().length > 0) {
-        combinedStream = new MediaStream([...canvasStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+        if (destination.stream.getAudioTracks().length > 0) {
+          combinedStream = new MediaStream([...canvasStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+        }
       }
 
       const recorder = new MediaRecorder(combinedStream, {

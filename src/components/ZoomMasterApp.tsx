@@ -24,25 +24,29 @@ export function ZoomMasterApp() {
   const { videoRef, webcamRef, hiddenVideoRef } = useRecording();
   const { cursorIcon } = useZoom();
 
-  // Initialize feature hooks
-  useSpeechRecognition();
-  useAutoZoom();
-  useParticleEffect();
+  // Initialize feature hooks - but only in browser environment
+  if (typeof window !== 'undefined') {
+    useSpeechRecognition();
+    useAutoZoom();
+    useParticleEffect();
+  }
 
   // Set cursor style based on cursorIcon
   useEffect(() => {
-    const cursorStyles = {
-      default: "default",
-      hand: "pointer",
-      zoom: "zoom-in",
-      text: "text",
-      grab: "grab",
-      grabbing: "grabbing",
-    }[cursorIcon];
-    document.body.style.cursor = cursorStyles;
-    return () => {
-      document.body.style.cursor = "default";
-    };
+    if (typeof document !== 'undefined') {
+      const cursorStyles = {
+        default: "default",
+        hand: "pointer",
+        zoom: "zoom-in",
+        text: "text",
+        grab: "grab",
+        grabbing: "grabbing",
+      }[cursorIcon];
+      document.body.style.cursor = cursorStyles;
+      return () => {
+        document.body.style.cursor = "default";
+      };
+    }
   }, [cursorIcon]);
 
   return (
@@ -56,8 +60,12 @@ export function ZoomMasterApp() {
       position: "relative",
     }}>
       {/* Hidden video elements */}
-      <video ref={hiddenVideoRef} style={{ display: "none" }} muted playsInline />
-      <video ref={webcamRef} style={{ display: "none" }} muted playsInline />
+      {typeof window !== 'undefined' && (
+        <>
+          <video ref={hiddenVideoRef} style={{ display: "none" }} muted playsInline />
+          <video ref={webcamRef} style={{ display: "none" }} muted playsInline />
+        </>
+      )}
       
       {/* UI Components */}
       <ParticleEffect />
