@@ -118,21 +118,23 @@ export function VideoPlayback() {
           Replay
         </button>
         
-        <a 
-          href={downloadURL} 
-          download={`recording-${sessionId}.webm`} 
-          style={{ 
-            ...buttonStyle(themeStyles.accentColor, themeStyles.textColor), 
-            boxShadow: `0 0 35px ${themeStyles.accentColor}80`, 
-            transition: "all 0.3s ease", 
-            textDecoration: "none", 
-            lineHeight: "3.2rem" 
-          }} 
-          onMouseEnter={(e: any) => (e.currentTarget.style.boxShadow = `0 0 45px ${themeStyles.accentColor}`)} 
-          onMouseLeave={(e: any) => (e.currentTarget.style.boxShadow = `0 0 35px ${themeStyles.accentColor}80`)}
-        >
-          Download
-        </a>
+        {downloadURL && (
+          <a 
+            href={downloadURL} 
+            download={`recording-${sessionId}.webm`} 
+            style={{ 
+              ...buttonStyle(themeStyles.accentColor, themeStyles.textColor), 
+              boxShadow: `0 0 35px ${themeStyles.accentColor}80`, 
+              transition: "all 0.3s ease", 
+              textDecoration: "none", 
+              lineHeight: "3.2rem" 
+            }} 
+            onMouseEnter={(e: any) => (e.currentTarget.style.boxShadow = `0 0 45px ${themeStyles.accentColor}`)} 
+            onMouseLeave={(e: any) => (e.currentTarget.style.boxShadow = `0 0 35px ${themeStyles.accentColor}80`)}
+          >
+            Download
+          </a>
+        )}
       </div>
     </div>
   );
