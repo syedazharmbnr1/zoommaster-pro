@@ -30,9 +30,13 @@ export function useAutoZoom() {
     // Only run in browser environment
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    // Fixed: Using Event instead of MouseEvent to accommodate all event types
+    const handleMouseMove = (e: Event) => {
       if (!isRecording || zoomMode !== "auto" || !hiddenVideoRef.current) return;
 
+      // Only work with mouse events that have screenX and screenY
+      if (!(e instanceof MouseEvent)) return;
+      
       const vidW = hiddenVideoRef.current.videoWidth || 1280;
       const vidH = hiddenVideoRef.current.videoHeight || 720;
       const screenX = e.screenX;
@@ -55,7 +59,7 @@ export function useAutoZoom() {
       const selection = document.getSelection();
       const activeElement = document.activeElement;
 
-      // Fixed the TypeScript error by adding robust null checks
+      // Fixed: Added robust null checks
       if (selection && typeof selection.toString === 'function' && selection.toString().length > 0) {
         newCursorIcon = "hand";
         // Make sure selection has at least one range before accessing it
@@ -128,20 +132,59 @@ export function useAutoZoom() {
       (handleMouseMove as any).lastMove = { x: screenX, y: screenY, time: now };
     };
 
+    // Create a handler for non-mouse events to avoid type errors
+    const handleGenericEvent = (e: Event) => {
+      // For non-MouseEvents, we just delegate to Selection API
+      if (!(e instanceof MouseEvent)) {
+        const selection = document.getSelection();
+        if (selection && selection.toString().length > 0 && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const fracX = Math.max(0, Math.min(1, (rect.left + rect.width / 2) / window.screen.width));
+            const fracY = Math.max(0, Math.min(1, (rect.top + rect.height / 2) / window.screen.height));
+            
+            setZoomCenter({
+              x: fracX,
+              y: fracY
+            });
+            setZoomScale(3.0);
+            setCursorIcon("hand");
+
+            if (recordStartTime !== null && sessionId && !isPaused) {
+              const timeMs = performance.now() - recordStartTime - pauseTime;
+              const newEvent = {
+                session_id: sessionId,
+                x: Math.round(fracX * (gridSizeX - 1)),
+                y: Math.round(fracY * (gridSizeY - 1)),
+                time_ms: timeMs,
+                timestamp: Date.now(),
+                zoom_level: 3.0,
+                confidence: 0.95,
+                should_zoom: true,
+              };
+              setSmartZoomData((prev) => [...prev, newEvent]);
+            }
+          }
+        }
+      }
+    };
+
     if (isRecording && zoomMode === "auto") {
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mousedown", handleMouseMove);
       window.addEventListener("mouseup", handleMouseMove);
-      window.addEventListener("selectstart", handleMouseMove);
-      window.addEventListener("focus", handleMouseMove, true);
+      // Using the correct handler for non-mouse events
+      window.addEventListener("selectstart", handleGenericEvent);
+      window.addEventListener("focus", handleGenericEvent, true);
     }
     
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mousedown", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseMove);
-      window.removeEventListener("selectstart", handleMouseMove);
-      window.removeEventListener("focus", handleMouseMove, true);
+      window.removeEventListener("selectstart", handleGenericEvent);
+      window.removeEventListener("focus", handleGenericEvent, true);
     };
   }, [isRecording, zoomMode, zoomScale, recordStartTime, pauseTime, sessionId, isPaused, gridSizeX, gridSizeY, hiddenVideoRef, setCursorIcon, setSmartZoomData, setZoomCenter, setZoomScale]);
 }
