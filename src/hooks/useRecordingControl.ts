@@ -69,25 +69,12 @@ export function useRecordingControl() {
         console.log("Created URL for blob", newUrl);
         setVideoURL(newUrl);
         setDownloadURL(newUrl);
-        
-        // Ensure video can play when it loads
-        if (videoRef.current) {
-          videoRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded");
-            if (videoRef.current) {
-              videoRef.current.play().catch(err => {
-                console.error("Error playing video:", err);
-                setDebug(prev => `${prev}\nError playing: ${err.message}`);
-              });
-            }
-          };
-        }
       } catch (err) {
         console.error("Error creating blob:", err);
         setDebug(`Error creating blob: ${err}`);
       }
     }
-  }, [isRecording, recordedChunks, setVideoURL, setDownloadURL, videoRef]);
+  }, [isRecording, recordedChunks, setVideoURL, setDownloadURL]);
 
   // Cleanup resources when component unmounts
   useEffect(() => {
@@ -280,7 +267,9 @@ export function useRecordingControl() {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
       setPauseTime((prev) => prev + (performance.now() - (recordStartTime || 0)));
-      if (recognition) recognition.stop();
+      if (recognition && typeof recognition.stop === 'function') {
+        recognition.stop();
+      }
     } catch (err) {
       console.error("Error pausing recording:", err);
     }
@@ -293,9 +282,18 @@ export function useRecordingControl() {
       mediaRecorderRef.current.resume();
       setIsPaused(false);
       setRecordStartTime(performance.now());
-      if (recognition && !isSpeechOn) {
-        recognition.start();
-        setIsRecognitionRunning(true);
+      if (recognition && isSpeechOn && typeof recognition.start === 'function') {
+        // Add delay to avoid race conditions
+        setTimeout(() => {
+          if (recognition && isSpeechOn) {
+            try {
+              recognition.start();
+              setIsRecognitionRunning(true);
+            } catch (err) {
+              console.warn("Could not start speech recognition on resume:", err);
+            }
+          }
+        }, 500);
       }
     } catch (err) {
       console.error("Error resuming recording:", err);
@@ -339,7 +337,13 @@ export function useRecordingControl() {
         setWebcamStream(null);
       }
       
-      if (recognition) recognition.stop();
+      if (recognition && typeof recognition.stop === 'function') {
+        try {
+          recognition.stop();
+        } catch (err) {
+          console.warn("Error stopping speech recognition:", err);
+        }
+      }
       setIsRecognitionRunning(false);
       setCaptions([]);
       setZoomMode("grid");
