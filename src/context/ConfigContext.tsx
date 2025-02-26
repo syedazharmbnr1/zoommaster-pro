@@ -34,7 +34,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // Webcam config - default to off if no webcam is detected
   const [isWebcamOn, setIsWebcamOn] = useState(hasWebcam);
   const [webcamPosition, setWebcamPosition] = useState<WebcamPositionType>("custom-right");
-  const [isSpeechOn, setIsSpeechOn] = useState(hasSpeechRecognition);
+  // Start with speech recognition off to avoid the initial errors
+  const [isSpeechOn, setIsSpeechOn] = useState(false);
   
   // Particles (for galactic theme)
   const [particles, setParticles] = useState<Particle[]>([]);
