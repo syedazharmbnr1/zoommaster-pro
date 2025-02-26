@@ -10,6 +10,13 @@ interface DisplayMediaOptions {
   audio?: boolean | MediaTrackConstraints;
 }
 
+// Define custom type for MediaRecorder error event
+interface MediaRecorderErrorEvent extends Event {
+  name?: string;
+  message?: string;
+  error?: any;
+}
+
 /**
  * Hook for controlling the recording process
  */
@@ -220,10 +227,13 @@ export function useRecordingControl() {
         setIsPaused(false);
       };
       
-      // Set up error handling
-      recorder.onerror = (event) => {
+      // Set up error handling with correct type
+      recorder.onerror = (event: Event) => {
         console.error("MediaRecorder error:", event);
-        setDebug(prev => `${prev}\nError: ${event.name}`);
+        const errorEvent = event as MediaRecorderErrorEvent;
+        // Extract error information safely, with fallbacks
+        const errorMessage = errorEvent.message || errorEvent.name || 'Unknown error';
+        setDebug(prev => `${prev}\nError: ${errorMessage}`);
       };
 
       // Start recording with a timeslice to get frequent data chunks
@@ -237,7 +247,8 @@ export function useRecordingControl() {
       console.log("Recording started");
     } catch (err) {
       console.error("Error starting recording:", err);
-      setDebug(prev => `${prev}\nStart error: ${err}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setDebug(prev => `${prev}\nStart error: ${errorMessage}`);
       alert("Could not start recording. Check permissions and console.");
     }
   };
@@ -297,7 +308,8 @@ export function useRecordingControl() {
       setZoomMode("grid");
     } catch (err) {
       console.error("Error stopping recording:", err);
-      setDebug(prev => `${prev}\nStop error: ${err}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setDebug(prev => `${prev}\nStop error: ${errorMessage}`);
     }
   };
 
