@@ -26,29 +26,26 @@ export function createSafeRecognition() {
   recognition.interimResults = false;
 
   // Setup event handlers to track actual state
-  recognition.onstart = (originalHandler => {
-    return (event: Event) => {
-      console.log('Speech recognition started');
-      isRecognizing = true;
-      if (originalHandler) originalHandler(event);
-    };
-  })(recognition.onstart);
+  const originalOnStart = recognition.onstart;
+  recognition.onstart = (event: Event) => {
+    console.log('Speech recognition started');
+    isRecognizing = true;
+    if (originalOnStart) originalOnStart.call(recognition, event);
+  };
 
-  recognition.onend = (originalHandler => {
-    return (event: Event) => {
-      console.log('Speech recognition ended');
-      isRecognizing = false;
-      if (originalHandler) originalHandler(event);
-    };
-  })(recognition.onend);
+  const originalOnEnd = recognition.onend;
+  recognition.onend = (event: Event) => {
+    console.log('Speech recognition ended');
+    isRecognizing = false;
+    if (originalOnEnd) originalOnEnd.call(recognition, event);
+  };
 
-  recognition.onerror = (originalHandler => {
-    return (event: Event) => {
-      console.log('Speech recognition error');
-      isRecognizing = false;
-      if (originalHandler) originalHandler(event);
-    };
-  })(recognition.onerror);
+  const originalOnError = recognition.onerror;
+  recognition.onerror = (event: Event) => {
+    console.log('Speech recognition error');
+    isRecognizing = false;
+    if (originalOnError) originalOnError.call(recognition, event);
+  };
 
   // Create safer versions of methods
   const safeRecognition = {
