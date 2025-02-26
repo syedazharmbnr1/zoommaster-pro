@@ -49,7 +49,7 @@ export function useRecordingControl() {
     setCaptions,
   } = useRecording();
   
-  const { isWebcamOn, isSpeechOn } = useConfig();
+  const { isWebcamOn, setIsWebcamOn, isSpeechOn } = useConfig();
   const { setZoomMode } = useZoom();
   
   // Debug state
@@ -113,17 +113,32 @@ export function useRecordingControl() {
       setDebug("Starting recording...");
 
       // Use the extended interface with type assertion for getDisplayMedia
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: "always" },
-        audio: true,
-      } as DisplayMediaOptions);
+      let screenStream;
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: "always" },
+          audio: true,
+        } as DisplayMediaOptions);
+      } catch (err) {
+        console.error("Error getting screen media:", err);
+        alert("Please grant screen sharing permission to record.");
+        return;
+      }
 
-      const webcamStream = isWebcamOn
-        ? await navigator.mediaDevices.getUserMedia({
+      // Try to get webcam access if enabled, but make it optional
+      let webcamStream = null;
+      if (isWebcamOn) {
+        try {
+          webcamStream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          })
-        : null;
+          });
+        } catch (err) {
+          console.warn("Webcam access error (continuing without webcam):", err);
+          setDebug(prev => `${prev}\nWebcam not available, continuing without it.`);
+          setIsWebcamOn(false); // Disable webcam since it's not available
+        }
+      }
 
       if (!hiddenVideoRef.current || !canvasRef.current) {
         console.error("Video or canvas references not available");
@@ -163,21 +178,26 @@ export function useRecordingControl() {
 
       // Only use AudioContext in browser environment
       if (typeof window !== 'undefined' && 'AudioContext' in window) {
-        const audioContext = new AudioContext();
-        const destination = audioContext.createMediaStreamDestination();
+        try {
+          const audioContext = new AudioContext();
+          const destination = audioContext.createMediaStreamDestination();
 
-        if (screenStream.getAudioTracks().length > 0) {
-          const screenSource = audioContext.createMediaStreamSource(screenStream);
-          screenSource.connect(destination);
-        }
-        // Fixed: Added proper null check before accessing getAudioTracks method
-        if (webcamStream && webcamStream.getAudioTracks().length > 0) {
-          const webcamSource = audioContext.createMediaStreamSource(webcamStream);
-          webcamSource.connect(destination);
-        }
+          if (screenStream.getAudioTracks().length > 0) {
+            const screenSource = audioContext.createMediaStreamSource(screenStream);
+            screenSource.connect(destination);
+          }
+          // Fixed: Added proper null check before accessing getAudioTracks method
+          if (webcamStream && webcamStream.getAudioTracks().length > 0) {
+            const webcamSource = audioContext.createMediaStreamSource(webcamStream);
+            webcamSource.connect(destination);
+          }
 
-        if (destination.stream.getAudioTracks().length > 0) {
-          combinedStream = new MediaStream([...canvasStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+          if (destination.stream.getAudioTracks().length > 0) {
+            combinedStream = new MediaStream([...canvasStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+          }
+        } catch (err) {
+          console.warn("Audio mixing not supported, using default audio", err);
+          // Continue with just the canvas stream
         }
       }
 
@@ -215,7 +235,7 @@ export function useRecordingControl() {
       
       // Set up data handling
       recorder.ondataavailable = (e) => {
-        console.log(`Received data chunk: ${e.data.size} bytes`);
+        console.log(`Received data chunk: ${e.data?.size} bytes`);
         if (e.data && e.data.size > 0) {
           setRecordedChunks((prev: Blob[]) => [...prev, e.data]);
         }
@@ -287,8 +307,25 @@ export function useRecordingControl() {
     console.log("Stopping recording");
 
     try {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
+      // Request a final data chunk before stopping
+      if (mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.requestData();
+        } catch (e) {
+          console.warn("Could not request final data chunk", e);
+        }
+        
+        // Stop the recorder after a small delay to ensure data is processed
+        setTimeout(() => {
+          if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current = null;
+          }
+        }, 100);
+      } else {
+        mediaRecorderRef.current = null;
+      }
+      
       setIsRecording(false);
       setIsPaused(false);
 

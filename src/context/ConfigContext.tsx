@@ -22,10 +22,19 @@ interface ConfigContextType {
 const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  // Webcam config
-  const [isWebcamOn, setIsWebcamOn] = useState(true);
+  // Check if webcam is likely available (we'll confirm this when actually trying to use it)
+  const hasWebcam = typeof navigator !== 'undefined' && 
+                  navigator.mediaDevices && 
+                  typeof navigator.mediaDevices.enumerateDevices === 'function';
+  
+  // Check if speech recognition is available
+  const hasSpeechRecognition = typeof window !== 'undefined' && 
+                              ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
+
+  // Webcam config - default to off if no webcam is detected
+  const [isWebcamOn, setIsWebcamOn] = useState(hasWebcam);
   const [webcamPosition, setWebcamPosition] = useState<WebcamPositionType>("custom-right");
-  const [isSpeechOn, setIsSpeechOn] = useState(true);
+  const [isSpeechOn, setIsSpeechOn] = useState(hasSpeechRecognition);
   
   // Particles (for galactic theme)
   const [particles, setParticles] = useState<Particle[]>([]);
