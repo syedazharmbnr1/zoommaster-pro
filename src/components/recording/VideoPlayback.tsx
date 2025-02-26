@@ -23,26 +23,34 @@ export function VideoPlayback() {
 
   // Log any video errors
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.onerror = (e) => {
-        console.error("Video error:", e);
-        setVideoError(`Error: ${videoRef.current?.error?.message || 'Unknown video error'}`);
-      };
-      
-      videoRef.current.onloadedmetadata = () => {
-        if (videoRef.current) {
-          setVideoInfo(`Video loaded: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
-        }
-      };
-    }
+    if (!videoRef.current) return;
+
+    const handleError = (e: Event) => {
+      console.error("Video error:", e);
+      const errorMessage = videoRef.current?.error?.message || 'Unknown video error';
+      setVideoError(`Error: ${errorMessage}`);
+    };
+
+    const handleMetadata = () => {
+      if (videoRef.current) {
+        setVideoInfo(`Video loaded: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+        // Try to play it automatically when loaded
+        videoRef.current.play().catch(err => {
+          console.warn("Autoplay prevented, user interaction required", err);
+        });
+      }
+    };
+
+    videoRef.current.addEventListener('error', handleError);
+    videoRef.current.addEventListener('loadedmetadata', handleMetadata);
     
     return () => {
       if (videoRef.current) {
-        videoRef.current.onerror = null;
-        videoRef.current.onloadedmetadata = null;
+        videoRef.current.removeEventListener('error', handleError);
+        videoRef.current.removeEventListener('loadedmetadata', handleMetadata);
       }
     };
-  }, [videoRef]);
+  }, [videoRef, videoURL]);
 
   function handleTimeUpdate() {
     if (!videoRef.current) return;
@@ -87,6 +95,21 @@ export function VideoPlayback() {
     } catch (err) {
       console.error("Download error:", err);
       setVideoError(`Download error: ${err}`);
+    }
+  };
+
+  const handleReplay = () => {
+    if (!videoRef.current) return;
+    
+    try {
+      // Reset to beginning and play
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(e => {
+        console.error("Play error:", e);
+        setVideoError(`Play error: ${e.message}. Try clicking the video.`);
+      });
+    } catch (e) {
+      console.error("Replay error:", e);
     }
   };
 
@@ -175,7 +198,7 @@ export function VideoPlayback() {
       
       <div style={{ position: "absolute", bottom: 30, left: 30, display: "flex", gap: 30 }}>
         <button 
-          onClick={() => videoRef.current?.play().catch(e => console.error("Play error:", e))} 
+          onClick={handleReplay} 
           style={{ 
             ...buttonStyle(themeStyles.buttonBg, themeStyles.textColor), 
             boxShadow: `0 0 35px ${themeStyles.accentColor}80`, 
