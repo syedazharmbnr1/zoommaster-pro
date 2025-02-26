@@ -67,6 +67,7 @@ export function ZoomMasterApp() {
   const [webcamPosition, setWebcamPosition] = useState<WebcamPositionType>("custom-right");
   const [cursorIcon, setCursorIcon] = useState<CursorIconType>("default");
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [showErrorMessage, setShowErrorMessage] = useState("");
 
   // Configuration constants
   const gridSizeX = 16;
@@ -84,11 +85,31 @@ export function ZoomMasterApp() {
   // MediaRecorder reference 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
+  // Browser support detection
+  const [hasMediaSupport, setHasMediaSupport] = useState(false);
+
+  // Check for browser support on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setHasMediaSupport(
+        !!navigator.mediaDevices && 
+        !!navigator.mediaDevices.getDisplayMedia &&
+        typeof MediaRecorder !== 'undefined'
+      );
+    }
+  }, []);
+
   // Speech Recognition for captions
   useEffect(() => {
-    if (typeof window === 'undefined' || !("webkitSpeechRecognition" in window) || !isSpeechOn) return;
+    if (typeof window === 'undefined' || !window.navigator) return;
+    
+    // Check for SpeechRecognition support
+    const hasSpeechRecognition = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+    
+    if (!hasSpeechRecognition || !isSpeechOn) return;
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition;
+    // Use the appropriate SpeechRecognition implementation
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) return;
 
     const recog = new SpeechRecognition();
@@ -96,14 +117,18 @@ export function ZoomMasterApp() {
     recog.interimResults = false;
 
     recog.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .filter((result: any) => result.isFinal)
-        .map((result: any) => result[0].transcript)
-        .join(" ");
-      if (transcript) {
-        const words = transcript.trim().split(/\s+/).slice(0, 4);
-        const captionText = words.join(" ") + (words.length === 4 ? "..." : "");
-        setCaptions([{ text: captionText, timestamp: Date.now() }]);
+      try {
+        const transcript = Array.from(event.results)
+          .filter((result: any) => result.isFinal)
+          .map((result: any) => result[0].transcript)
+          .join(" ");
+        if (transcript) {
+          const words = transcript.trim().split(/\s+/).slice(0, 4);
+          const captionText = words.join(" ") + (words.length === 4 ? "..." : "");
+          setCaptions([{ text: captionText, timestamp: Date.now() }]);
+        }
+      } catch (error) {
+        console.log('Speech recognition result error:', error);
       }
     };
 
@@ -112,8 +137,12 @@ export function ZoomMasterApp() {
       if (isRecording && !isPaused && isSpeechOn) {
         setTimeout(() => {
           if (isSpeechOn && !isRecognitionRunning) {
-            recog.start();
-            setIsRecognitionRunning(true);
+            try {
+              recog.start();
+              setIsRecognitionRunning(true);
+            } catch (e) {
+              console.log('Could not restart speech recognition:', e);
+            }
           }
         }, 100);
       }
@@ -124,8 +153,12 @@ export function ZoomMasterApp() {
       if (isRecording && !isPaused && isSpeechOn) {
         setTimeout(() => {
           if (isSpeechOn && !isRecognitionRunning) {
-            recog.start();
-            setIsRecognitionRunning(true);
+            try {
+              recog.start();
+              setIsRecognitionRunning(true);
+            } catch (e) {
+              console.log('Could not restart speech recognition:', e);
+            }
           }
         }, 100);
       }
@@ -134,8 +167,12 @@ export function ZoomMasterApp() {
     setRecognition(recog);
 
     if (isRecording && !isPaused && !isRecognitionRunning) {
-      recog.start();
-      setIsRecognitionRunning(true);
+      try {
+        recog.start();
+        setIsRecognitionRunning(true);
+      } catch (e) {
+        console.log('Could not start speech recognition:', e);
+      }
     }
 
     return () => {
@@ -153,10 +190,12 @@ export function ZoomMasterApp() {
   // Resource cleanup
   useEffect(() => {
     return () => {
-      if (videoURL) URL.revokeObjectURL(videoURL);
-      if (downloadURL) URL.revokeObjectURL(downloadURL);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (webcamStream) webcamStream.getTracks().forEach((track) => track.stop());
+      if (typeof window !== 'undefined') {
+        if (videoURL) URL.revokeObjectURL(videoURL);
+        if (downloadURL) URL.revokeObjectURL(downloadURL);
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        if (webcamStream) webcamStream.getTracks().forEach((track) => track.stop());
+      }
     };
   }, [videoURL, downloadURL, webcamStream]);
 
@@ -420,22 +459,52 @@ export function ZoomMasterApp() {
   // Start recording function
   const startRecording = async () => {
     try {
-      if (typeof window === 'undefined' || !navigator.mediaDevices || isRecording || mediaRecorderRef.current) return;
+      // Early exit checks
+      if (typeof window === 'undefined' || !navigator.mediaDevices) {
+        setShowErrorMessage("Browser does not support media recording");
+        return;
+      }
+      
+      if (isRecording || mediaRecorderRef.current) {
+        return;
+      }
 
-      // Get screen stream with explicit type assertion for browser compatibility
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: "always" } as any,
-        audio: true,
-      });
+      // Reset error message
+      setShowErrorMessage("");
 
-      const webcamStream = isWebcamOn
-        ? await navigator.mediaDevices.getUserMedia({
+      // Get screen stream with user interaction (this is the key part - must be from a user gesture)
+      let screenStream;
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: "always" } as any,
+          audio: true,
+        });
+      } catch (err) {
+        console.error("Screen capture error:", err);
+        setShowErrorMessage("Could not access screen. Please check permissions.");
+        return;
+      }
+
+      // Get webcam stream if enabled
+      let capturedWebcamStream = null;
+      if (isWebcamOn) {
+        try {
+          capturedWebcamStream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          })
-        : null;
+          });
+        } catch (err) {
+          console.warn("Webcam access error (continuing without webcam):", err);
+          // Continue without webcam
+        }
+      }
 
-      if (!hiddenVideoRef.current || !canvasRef.current) return;
+      if (!hiddenVideoRef.current || !canvasRef.current) {
+        if (screenStream) screenStream.getTracks().forEach(track => track.stop());
+        if (capturedWebcamStream) capturedWebcamStream.getTracks().forEach(track => track.stop());
+        setShowErrorMessage("Video elements not ready");
+        return;
+      }
 
       // Set up screen preview
       hiddenVideoRef.current.srcObject = screenStream;
@@ -443,11 +512,11 @@ export function ZoomMasterApp() {
       await hiddenVideoRef.current.play();
 
       // Set up webcam preview if enabled
-      if (webcamStream && webcamRef.current) {
-        webcamRef.current.srcObject = webcamStream;
+      if (capturedWebcamStream && webcamRef.current) {
+        webcamRef.current.srcObject = capturedWebcamStream;
         webcamRef.current.muted = true;
         await webcamRef.current.play();
-        setWebcamStream(webcamStream);
+        setWebcamStream(capturedWebcamStream);
       }
 
       // Configure canvas size
@@ -461,36 +530,66 @@ export function ZoomMasterApp() {
       canvas.height = realH;
 
       // Set up recording from canvas
-      const canvasStream = canvas.captureStream(30);
+      let canvasStream;
+      try {
+        canvasStream = canvas.captureStream(30);
+      } catch (err) {
+        console.error("Canvas stream error:", err);
+        setShowErrorMessage("Failed to create canvas stream");
+        stopAllTracks();
+        return;
+      }
+      
       let combinedStream = canvasStream;
 
       // Mix audio if available
       if ('AudioContext' in window) {
-        const audioContext = new AudioContext();
-        const destination = audioContext.createMediaStreamDestination();
+        try {
+          const audioContext = new AudioContext();
+          const destination = audioContext.createMediaStreamDestination();
 
-        if (screenStream.getAudioTracks().length > 0) {
-          const screenSource = audioContext.createMediaStreamSource(screenStream);
-          screenSource.connect(destination);
-        }
-        
-        if (webcamStream && webcamStream.getAudioTracks().length > 0) {
-          const webcamSource = audioContext.createMediaStreamSource(webcamStream);
-          webcamSource.connect(destination);
-        }
+          if (screenStream.getAudioTracks().length > 0) {
+            const screenSource = audioContext.createMediaStreamSource(screenStream);
+            screenSource.connect(destination);
+          }
+          
+          if (capturedWebcamStream && capturedWebcamStream.getAudioTracks().length > 0) {
+            const webcamSource = audioContext.createMediaStreamSource(capturedWebcamStream);
+            webcamSource.connect(destination);
+          }
 
-        if (destination.stream.getAudioTracks().length > 0) {
-          combinedStream = new MediaStream([
-            ...canvasStream.getVideoTracks(),
-            ...destination.stream.getAudioTracks()
-          ]);
+          if (destination.stream.getAudioTracks().length > 0) {
+            combinedStream = new MediaStream([
+              ...canvasStream.getVideoTracks(),
+              ...destination.stream.getAudioTracks()
+            ]);
+          }
+        } catch (err) {
+          console.warn("Audio mixing error (continuing with video only):", err);
+          // Continue with video only
         }
       }
 
       // Create and start MediaRecorder
-      const recorder = new MediaRecorder(combinedStream, {
-        mimeType: "video/webm;codecs=vp9,opus",
-      });
+      let recorder;
+      try {
+        // Try with preferred codec first
+        recorder = new MediaRecorder(combinedStream, {
+          mimeType: "video/webm;codecs=vp9,opus",
+        });
+      } catch (err) {
+        // Fall back to basic webm if codec not supported
+        try {
+          recorder = new MediaRecorder(combinedStream, {
+            mimeType: "video/webm",
+          });
+        } catch (fallbackErr) {
+          console.error("MediaRecorder creation error:", fallbackErr);
+          setShowErrorMessage("Your browser doesn't support the required video format");
+          stopAllTracks();
+          return;
+        }
+      }
       
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -503,67 +602,33 @@ export function ZoomMasterApp() {
         setIsPaused(false);
       };
       
-      // Start recording with smaller chunk size
-      recorder.start(1000); // Capture data every second
-      mediaRecorderRef.current = recorder;
-      setRecordedChunks([]);
+      // Start recording with smaller chunk size for better performance
+      try {
+        recorder.start(1000); // Capture data every second
+        mediaRecorderRef.current = recorder;
+        setRecordedChunks([]);
 
-      // Generate session ID and start recording
-      const newSessionId = crypto.randomUUID();
-      setSessionId(newSessionId);
-      setRecordStartTime(performance.now());
-      setIsRecording(true);
+        // Generate session ID and start recording
+        const newSessionId = crypto.randomUUID();
+        setSessionId(newSessionId);
+        setRecordStartTime(performance.now());
+        setIsRecording(true);
+      } catch (err) {
+        console.error("MediaRecorder start error:", err);
+        setShowErrorMessage("Failed to start recording");
+        stopAllTracks();
+      }
     } catch (err) {
-      console.error("Recording error:", err);
-      alert("Could not start recording. Please check console for details.");
+      console.error("Recording setup error:", err);
+      setShowErrorMessage("An unexpected error occurred");
+      
+      // Ensure all tracks are stopped
+      stopAllTracks();
     }
   };
 
-  // Pause recording function
-  const pauseRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording || isPaused) return;
-    mediaRecorderRef.current.pause();
-    setIsPaused(true);
-    setPauseTime(prev => prev + (performance.now() - (recordStartTime || 0)));
-    if (recognition) recognition.stop();
-  };
-
-  // Resume recording function
-  const resumeRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording || !isPaused) return;
-    mediaRecorderRef.current.resume();
-    setIsPaused(false);
-    setRecordStartTime(performance.now());
-    if (recognition && !isRecognitionRunning && isSpeechOn) {
-      recognition.start();
-      setIsRecognitionRunning(true);
-    }
-  };
-
-  // Take snapshot function
-  const takeSnapshot = () => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const snapshot = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = snapshot;
-    link.download = `snapshot-${sessionId || Date.now()}.png`;
-    link.click();
-  };
-
-  // Stop recording function
-  const stopRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording) return;
-
-    // End recording
-    mediaRecorderRef.current.stop();
-    mediaRecorderRef.current = null;
-    
-    // Reset recording state
-    setIsRecording(false);
-    setIsPaused(false);
-
-    // Stop and cleanup media streams
+  // Helper to stop all media tracks
+  const stopAllTracks = () => {
     if (hiddenVideoRef.current?.srcObject) {
       (hiddenVideoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
       hiddenVideoRef.current.srcObject = null;
@@ -573,11 +638,99 @@ export function ZoomMasterApp() {
       webcamStream.getTracks().forEach(track => track.stop());
       setWebcamStream(null);
     }
+  };
+
+  // Pause recording function
+  const pauseRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording || isPaused) return;
     
-    if (recognition) recognition.stop();
-    setIsRecognitionRunning(false);
-    setCaptions([]);
-    setZoomMode("grid");
+    try {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      setPauseTime(prev => prev + (performance.now() - (recordStartTime || 0)));
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch (e) {
+          console.log('Error stopping recognition during pause:', e);
+        }
+      }
+    } catch (err) {
+      console.error("Error pausing recording:", err);
+    }
+  };
+
+  // Resume recording function
+  const resumeRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording || !isPaused) return;
+    
+    try {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      setRecordStartTime(performance.now());
+      if (recognition && !isRecognitionRunning && isSpeechOn) {
+        try {
+          recognition.start();
+          setIsRecognitionRunning(true);
+        } catch (e) {
+          console.log('Error starting recognition during resume:', e);
+        }
+      }
+    } catch (err) {
+      console.error("Error resuming recording:", err);
+    }
+  };
+
+  // Take snapshot function
+  const takeSnapshot = () => {
+    if (typeof window === 'undefined' || !canvasRef.current) return;
+    
+    try {
+      const canvas = canvasRef.current;
+      const snapshot = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = snapshot;
+      link.download = `snapshot-${sessionId || Date.now()}.png`;
+      link.click();
+    } catch (err) {
+      console.error("Error taking snapshot:", err);
+      setShowErrorMessage("Could not take snapshot");
+    }
+  };
+
+  // Stop recording function
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording) return;
+
+    try {
+      // End recording
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      
+      // Reset recording state
+      setIsRecording(false);
+      setIsPaused(false);
+
+      // Stop and cleanup media streams
+      stopAllTracks();
+      
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch (e) {
+          console.log('Error stopping recognition during stop recording:', e);
+        }
+      }
+      setIsRecognitionRunning(false);
+      setCaptions([]);
+      setZoomMode("grid");
+    } catch (err) {
+      console.error("Error stopping recording:", err);
+      // Force reset of recording state
+      setIsRecording(false);
+      setIsPaused(false);
+      stopAllTracks();
+    }
   };
 
   // Process recorded chunks when recording completes
@@ -596,12 +749,14 @@ export function ZoomMasterApp() {
       console.log("Recording completed. Blob size:", blob.size);
     } catch (error) {
       console.error("Error processing recording:", error);
+      setShowErrorMessage("Failed to process recording");
     }
   }, [isRecording, recordedChunks]);
 
   // Handle playback position updates
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
+    
     const currentTimeMs = videoRef.current.currentTime * 1000;
     const relevantEvent = [...retrievedData].reverse().find((ev) => ev.time_ms <= currentTimeMs);
     setOverlayDot(relevantEvent ? { x: relevantEvent.x, y: relevantEvent.y } : null);
@@ -610,6 +765,7 @@ export function ZoomMasterApp() {
   // Grid zoom functions
   const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (zoomMode !== "grid") return;
+    
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
@@ -813,6 +969,41 @@ export function ZoomMasterApp() {
         >
           {isRecording ? "Stop Recording" : "Start Recording"}
         </button>
+
+        {/* Error message */}
+        {showErrorMessage && (
+          <div style={{
+            marginTop: "10px",
+            padding: "10px",
+            backgroundColor: "#ff3366",
+            color: "white",
+            borderRadius: "5px",
+            fontSize: "1rem",
+            textAlign: "center",
+            maxWidth: "500px",
+            margin: "10px auto"
+          }}>
+            {showErrorMessage}
+          </div>
+        )}
+
+        {/* Browser support message */}
+        {!hasMediaSupport && (
+          <div style={{
+            marginTop: "10px",
+            padding: "10px",
+            backgroundColor: "#ffa500",
+            color: "white",
+            borderRadius: "5px",
+            fontSize: "1rem",
+            textAlign: "center",
+            maxWidth: "500px",
+            margin: "10px auto"
+          }}>
+            Your browser may not fully support screen recording features.
+            Please use Chrome, Edge, or Firefox for best results.
+          </div>
+        )}
       </header>
 
       {/* Theme selector */}
