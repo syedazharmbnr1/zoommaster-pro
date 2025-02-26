@@ -47,7 +47,7 @@ export function createSafeRecognition() {
     if (originalOnError) originalOnError.call(recognition, event);
   };
 
-  // Create safer versions of methods
+  // Create safer versions of methods with better state tracking
   const safeRecognition = {
     ...recognition,
     
@@ -60,6 +60,7 @@ export function createSafeRecognition() {
       
       try {
         console.log('Starting speech recognition safely');
+        // Set state before calling start to prevent race conditions
         isRecognizing = true;
         recognition.start();
       } catch (error) {
@@ -77,16 +78,30 @@ export function createSafeRecognition() {
       
       try {
         console.log('Stopping speech recognition safely');
+        // We'll update the state flag in the onend handler to ensure proper sequencing
         recognition.stop();
-        isRecognizing = false;
       } catch (error) {
         console.error('Error stopping speech recognition:', error);
+        // Ensure state is reset if stop fails
         isRecognizing = false;
       }
     },
     
     // Add method to check state
-    isRunning: () => isRecognizing
+    isRunning: () => isRecognizing,
+    
+    // Forcibly reset the state - useful in error recovery
+    reset: () => {
+      console.log('Forcibly resetting speech recognition state');
+      try {
+        if (isRecognizing) {
+          recognition.stop();
+        }
+      } catch (e) {
+        console.warn('Error during forced reset:', e);
+      }
+      isRecognizing = false;
+    }
   };
 
   return safeRecognition;
