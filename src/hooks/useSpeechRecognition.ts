@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRecording } from "../context/RecordingContext";
 import { useConfig } from "../context/ConfigContext";
+import { createSafeRecognition } from "../utils/speechRecognition";
 
 /**
  * Hook for handling speech recognition for captions
@@ -42,16 +43,17 @@ export function useSpeechRecognition() {
     isInitializedRef.current = true;
 
     try {
-      // Determine which Speech Recognition API to use
-      // Using casting to avoid TypeScript errors with experimental APIs
-      const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      // Create a safe speech recognition instance that handles state properly
+      const safeRecognition = createSafeRecognition();
       
-      // Create recognition instance
-      const recog = new SpeechRecognitionAPI();
-      recog.continuous = true;
-      recog.interimResults = false; // Only final results
-
-      recog.onresult = (event: SpeechRecognitionEvent) => {
+      if (!safeRecognition) {
+        console.error("Could not create speech recognition instance");
+        setIsSpeechOn(false);
+        return;
+      }
+      
+      // Set up event handlers
+      safeRecognition.onresult = (event: SpeechRecognitionEvent) => {
         try {
           const transcript = Array.from(event.results)
             .filter(result => result.isFinal)
@@ -70,7 +72,7 @@ export function useSpeechRecognition() {
         }
       };
 
-      recog.onerror = (event: SpeechRecognitionErrorEvent) => {
+      safeRecognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.error("Speech recognition error:", event.error);
         setIsRecognitionRunning(false);
         recognitionStateRef.current = 'inactive';
@@ -81,74 +83,26 @@ export function useSpeechRecognition() {
           setIsSpeechOn(false);
           return;
         }
-        
-        // Auto-restart on other errors after a delay, but only if recording is active
-        if (isRecording && !isPaused && isSpeechOn) {
-          setTimeout(() => {
-            try {
-              if (isSpeechOn && !isRecognitionRunning && recognitionStateRef.current === 'inactive') {
-                recog.start();
-                recognitionStateRef.current = 'running';
-                setIsRecognitionRunning(true);
-              }
-            } catch (err) {
-              console.error("Failed to restart speech recognition:", err);
-            }
-          }, 1000);
-        }
       };
 
-      recog.onend = () => {
-        // Speech recognition ended - update state
-        recognitionStateRef.current = 'inactive';
-        setIsRecognitionRunning(false);
-        
-        // Auto-restart if needed, but only if recording is active
-        if (isRecording && !isPaused && isSpeechOn) {
-          setTimeout(() => {
-            try {
-              if (isSpeechOn && !isRecognitionRunning && recognitionStateRef.current === 'inactive') {
-                recog.start();
-                recognitionStateRef.current = 'running';
-                setIsRecognitionRunning(true);
-              }
-            } catch (err) {
-              console.error("Failed to restart speech recognition after end:", err);
-            }
-          }, 1000);
-        }
-      };
-
-      // Add onstart handler to track state
-      recog.onstart = () => {
-        recognitionStateRef.current = 'running';
-        setIsRecognitionRunning(true);
-      };
-
-      setRecognition(recog);
+      setRecognition(safeRecognition);
 
       // Start recognition if we're already recording
-      if (isRecording && !isPaused && !isRecognitionRunning && recognitionStateRef.current === 'inactive') {
-        try {
-          recog.start();
-          recognitionStateRef.current = 'starting';
-          setIsRecognitionRunning(true);
-        } catch (err) {
-          console.error("Error starting initial speech recognition:", err);
-        }
+      if (isRecording && !isPaused && isSpeechOn) {
+        setTimeout(() => {
+          if (safeRecognition && isSpeechOn) {
+            safeRecognition.start();
+            setIsRecognitionRunning(true);
+          }
+        }, 1000);
       }
 
       return () => {
-        try {
-          // Clean up speech recognition when the hook unmounts
-          if (recog && recognitionStateRef.current !== 'inactive') {
-            recog.stop();
-            recognitionStateRef.current = 'inactive';
-          }
-          setIsRecognitionRunning(false);
-        } catch (err) {
-          console.error("Error stopping speech recognition on cleanup:", err);
+        // Cleanup on unmount
+        if (safeRecognition && typeof safeRecognition.stop === 'function') {
+          safeRecognition.stop();
         }
+        setIsRecognitionRunning(false);
       };
     } catch (err) {
       console.error("Error setting up speech recognition:", err);
@@ -161,35 +115,39 @@ export function useSpeechRecognition() {
     if (!recognition) return;
     
     try {
-      // If recording starts and speech recognition is enabled
-      if (isRecording && !isPaused && isSpeechOn && !isRecognitionRunning && recognitionStateRef.current === 'inactive') {
-        try {
-          recognition.start();
-          recognitionStateRef.current = 'starting';
-          setIsRecognitionRunning(true);
-        } catch (err) {
-          console.error("Error starting speech recognition:", err);
-        }
+      // Use isRunning() method if available (from safeRecognition)
+      const isCurrentlyRunning = typeof (recognition as any).isRunning === 'function' 
+        ? (recognition as any).isRunning()
+        : isRecognitionRunning;
+        
+      // Start recognition when recording starts
+      if (isRecording && !isPaused && isSpeechOn && !isCurrentlyRunning) {
+        setTimeout(() => {
+          if (recognition && isSpeechOn) {
+            try {
+              recognition.start();
+              setIsRecognitionRunning(true);
+            } catch (err) {
+              console.warn("Could not start speech recognition:", err);
+            }
+          }
+        }, 500);
       }
-      // If recording stops or pauses
-      else if ((!isRecording || isPaused) && (isRecognitionRunning || recognitionStateRef.current !== 'inactive')) {
+      // Stop recognition when recording stops or pauses
+      else if ((!isRecording || isPaused) && isCurrentlyRunning) {
         try {
           recognition.stop();
-          recognitionStateRef.current = 'inactive';
           setIsRecognitionRunning(false);
         } catch (err) {
-          console.error("Error stopping speech recognition:", err);
-          // Force reset the state if stopping fails
-          recognitionStateRef.current = 'inactive';
+          console.warn("Could not stop speech recognition:", err);
           setIsRecognitionRunning(false);
         }
       }
     } catch (err) {
       console.error("Error managing speech recognition state:", err);
-      recognitionStateRef.current = 'inactive';
       setIsRecognitionRunning(false);
     }
-  }, [isRecording, isPaused, isSpeechOn, recognition, isRecognitionRunning]);
+  }, [isRecording, isPaused, isSpeechOn, recognition]);
 
   return { isRecognitionRunning };
 }
