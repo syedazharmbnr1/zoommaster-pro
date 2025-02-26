@@ -41,14 +41,15 @@ export function useSpeechRecognition() {
 
     try {
       // Determine which Speech Recognition API to use
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      // Using casting to avoid TypeScript errors with experimental APIs
+      const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
       // Create recognition instance
-      const recog = new SpeechRecognition();
+      const recog = new SpeechRecognitionAPI();
       recog.continuous = true;
       recog.interimResults = false; // Only final results
 
-      recog.onresult = (event) => {
+      recog.onresult = (event: SpeechRecognitionEvent) => {
         try {
           const transcript = Array.from(event.results)
             .filter(result => result.isFinal)
@@ -67,7 +68,7 @@ export function useSpeechRecognition() {
         }
       };
 
-      recog.onerror = (event) => {
+      recog.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.error("Speech recognition error:", event.error);
         setIsRecognitionRunning(false);
         

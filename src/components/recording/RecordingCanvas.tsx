@@ -5,7 +5,7 @@ import { useCanvasDrawing } from "../../hooks/useCanvasDrawing";
 
 export function RecordingCanvas() {
   const { themeStyles } = useTheme();
-  const { canvasRef, isRecording } = useRecording();
+  const { canvasRef, isRecording, debug } = useRecording();
   
   // Initialize canvas drawing
   useCanvasDrawing();
@@ -49,6 +49,24 @@ export function RecordingCanvas() {
             }}
           >
             Live
+          </div>
+        )}
+        {!isRecording && debug && (
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            color: themeStyles.textColor,
+            fontSize: "1rem",
+            maxWidth: "80%",
+            textAlign: "center",
+            whiteSpace: "pre-wrap"
+          }}>
+            <h3 style={{ marginBottom: 20, color: themeStyles.primaryColor }}>Recording Status</h3>
+            <div style={{ background: "rgba(0,0,0,0.5)", padding: 20, borderRadius: 10 }}>
+              {debug || "Click "Start Recording" to begin."}
+            </div>
           </div>
         )}
       </div>
