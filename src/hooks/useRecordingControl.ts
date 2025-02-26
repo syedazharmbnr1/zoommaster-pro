@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRecording } from "../context/RecordingContext";
-import { mediaRecorderRef, generateSessionId, createRecordingBlob } from "../utils/mediaUtils";
+import { mediaRecorderRef, generateSessionId, createRecordingBlob, stopMediaStream } from "../utils/mediaUtils";
 import { useConfig } from "../context/ConfigContext";
 import { useZoom } from "../context/ZoomContext";
 
@@ -23,6 +23,7 @@ export function useRecordingControl() {
     pauseTime,
     hiddenVideoRef,
     canvasRef,
+    videoRef,
     webcamRef,
     webcamStream,
     recognition,
@@ -43,25 +44,53 @@ export function useRecordingControl() {
   
   const { isWebcamOn, isSpeechOn } = useConfig();
   const { setZoomMode } = useZoom();
+  
+  // Debug state
+  const [debug, setDebug] = useState<string>("");
 
   // Process recorded chunks when recording is complete
   useEffect(() => {
     if (!isRecording && recordedChunks.length > 0) {
-      const blob = createRecordingBlob(recordedChunks);
-      const newUrl = URL.createObjectURL(blob);
-      setVideoURL(newUrl);
-      setDownloadURL(newUrl);
+      console.log("Processing recorded chunks", recordedChunks.length);
+      try {
+        const blob = createRecordingBlob(recordedChunks);
+        console.log("Created recording blob", blob.size, "bytes");
+        setDebug(`Blob created: ${blob.size} bytes, type: ${blob.type}`);
+        
+        // Create URLs for video playback and download
+        const newUrl = URL.createObjectURL(blob);
+        console.log("Created URL for blob", newUrl);
+        setVideoURL(newUrl);
+        setDownloadURL(newUrl);
+        
+        // Ensure video can play when it loads
+        if (videoRef.current) {
+          videoRef.current.onloadedmetadata = () => {
+            console.log("Video metadata loaded");
+            if (videoRef.current) {
+              videoRef.current.play().catch(err => {
+                console.error("Error playing video:", err);
+                setDebug(prev => `${prev}\nError playing: ${err.message}`);
+              });
+            }
+          };
+        }
+      } catch (err) {
+        console.error("Error creating blob:", err);
+        setDebug(`Error creating blob: ${err}`);
+      }
     }
-  }, [isRecording, recordedChunks, setVideoURL, setDownloadURL]);
+  }, [isRecording, recordedChunks, setVideoURL, setDownloadURL, videoRef]);
 
   // Cleanup resources when component unmounts
   useEffect(() => {
     return () => {
-      if (webcamStream) {
-        webcamStream.getTracks().forEach((track) => track.stop());
+      stopMediaStream(webcamStream);
+      if (videoRef.current?.src) {
+        URL.revokeObjectURL(videoRef.current.src);
       }
     };
-  }, [webcamStream]);
+  }, [webcamStream, videoRef]);
 
   const startRecording = async () => {
     // Only run this in browser environment
@@ -72,6 +101,9 @@ export function useRecordingControl() {
     
     try {
       if (isRecording || mediaRecorderRef.current) return;
+
+      console.log("Starting recording...");
+      setDebug("Starting recording...");
 
       // Use the extended interface with type assertion for getDisplayMedia
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -86,7 +118,12 @@ export function useRecordingControl() {
           })
         : null;
 
-      if (!hiddenVideoRef.current || !canvasRef.current) return;
+      if (!hiddenVideoRef.current || !canvasRef.current) {
+        console.error("Video or canvas references not available");
+        stopMediaStream(screenStream);
+        stopMediaStream(webcamStream);
+        return;
+      }
 
       hiddenVideoRef.current.srcObject = screenStream;
       hiddenVideoRef.current.muted = true;
@@ -99,10 +136,16 @@ export function useRecordingControl() {
         setWebcamStream(webcamStream);
       }
 
+      // Wait for video dimensions
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const realW = Math.min(hiddenVideoRef.current.videoWidth || 1280, 1280);
       const realH = Math.min(hiddenVideoRef.current.videoHeight || 720, 720);
       setCapturedWidth(realW);
       setCapturedHeight(realH);
+
+      console.log(`Canvas size set to ${realW}x${realH}`);
+      setDebug(prev => `${prev}\nCanvas: ${realW}x${realH}`);
 
       const canvas = canvasRef.current;
       canvas.width = realW;
@@ -131,82 +174,150 @@ export function useRecordingControl() {
         }
       }
 
-      const recorder = new MediaRecorder(combinedStream, {
-        mimeType: "video/webm; codecs=vp9,opus",
-      });
+      // Define supported codecs
+      const mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'video/mp4'
+      ];
+      
+      // Find the first supported MIME type
+      let mimeType = '';
+      for (const type of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          mimeType = type;
+          break;
+        }
+      }
+      
+      console.log(`Using MIME type: ${mimeType || 'Default browser codec'}`);
+      setDebug(prev => `${prev}\nMIME: ${mimeType || 'Default codec'}`);
+
+      // Create recorder with options
+      const recorderOptions: MediaRecorderOptions = {};
+      if (mimeType) {
+        recorderOptions.mimeType = mimeType;
+      }
+
+      const recorder = new MediaRecorder(combinedStream, recorderOptions);
+      console.log("MediaRecorder created");
+
+      // Clear any existing chunks
+      setRecordedChunks([]);
+      
+      // Set up data handling
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          // Fixed: Type issue by explicitly typing prev as Blob[] array
+        console.log(`Received data chunk: ${e.data.size} bytes`);
+        if (e.data && e.data.size > 0) {
           setRecordedChunks((prev: Blob[]) => [...prev, e.data]);
         }
       };
+      
       recorder.onstop = () => {
+        console.log("Recording stopped");
         setIsRecording(false);
         setIsPaused(false);
       };
-      recorder.start();
+      
+      // Set up error handling
+      recorder.onerror = (event) => {
+        console.error("MediaRecorder error:", event);
+        setDebug(prev => `${prev}\nError: ${event.name}`);
+      };
+
+      // Start recording with a timeslice to get frequent data chunks
+      recorder.start(1000); // Get data every second
       mediaRecorderRef.current = recorder;
-      setRecordedChunks([]);
 
       const newSessionId = generateSessionId();
       setSessionId(newSessionId);
       setRecordStartTime(performance.now());
       setIsRecording(true);
+      console.log("Recording started");
     } catch (err) {
       console.error("Error starting recording:", err);
+      setDebug(prev => `${prev}\nStart error: ${err}`);
       alert("Could not start recording. Check permissions and console.");
     }
   };
 
   const pauseRecording = () => {
     if (!mediaRecorderRef.current || !isRecording || isPaused) return;
-    mediaRecorderRef.current.pause();
-    setIsPaused(true);
-    setPauseTime((prev) => prev + (performance.now() - (recordStartTime || 0)));
-    if (recognition) recognition.stop();
+    console.log("Pausing recording");
+    try {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      setPauseTime((prev) => prev + (performance.now() - (recordStartTime || 0)));
+      if (recognition) recognition.stop();
+    } catch (err) {
+      console.error("Error pausing recording:", err);
+    }
   };
 
   const resumeRecording = () => {
     if (!mediaRecorderRef.current || !isRecording || !isPaused) return;
-    mediaRecorderRef.current.resume();
-    setIsPaused(false);
-    setRecordStartTime(performance.now());
-    if (recognition && !isSpeechOn) {
-      recognition.start();
-      setIsRecognitionRunning(true);
+    console.log("Resuming recording");
+    try {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      setRecordStartTime(performance.now());
+      if (recognition && !isSpeechOn) {
+        recognition.start();
+        setIsRecognitionRunning(true);
+      }
+    } catch (err) {
+      console.error("Error resuming recording:", err);
     }
   };
 
   const stopRecording = () => {
     if (!mediaRecorderRef.current || !isRecording) return;
+    console.log("Stopping recording");
 
-    mediaRecorderRef.current.stop();
-    mediaRecorderRef.current = null;
-    setIsRecording(false);
-    setIsPaused(false);
+    try {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+      setIsPaused(false);
 
-    if (hiddenVideoRef.current?.srcObject) {
-      (hiddenVideoRef.current.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
-      hiddenVideoRef.current.srcObject = null;
+      if (hiddenVideoRef.current?.srcObject) {
+        stopMediaStream(hiddenVideoRef.current.srcObject as MediaStream);
+        hiddenVideoRef.current.srcObject = null;
+      }
+      
+      if (webcamStream) {
+        stopMediaStream(webcamStream);
+        setWebcamStream(null);
+      }
+      
+      if (recognition) recognition.stop();
+      setIsRecognitionRunning(false);
+      setCaptions([]);
+      setZoomMode("grid");
+    } catch (err) {
+      console.error("Error stopping recording:", err);
+      setDebug(prev => `${prev}\nStop error: ${err}`);
     }
-    if (webcamStream) {
-      webcamStream.getTracks().forEach((track) => track.stop());
-      setWebcamStream(null);
-    }
-    if (recognition) recognition.stop();
-    setIsRecognitionRunning(false);
-    setCaptions([]);
-    setZoomMode("grid");
   };
 
   const takeSnapshot = () => {
     if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const snapshot = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = snapshot;
-    link.download = `snapshot-${sessionId || Date.now()}.png`;
-    link.click();
+    console.log("Taking snapshot");
+    try {
+      const canvas = canvasRef.current;
+      const snapshot = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = snapshot;
+      link.download = `snapshot-${sessionId || Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+    } catch (err) {
+      console.error("Error taking snapshot:", err);
+    }
   };
 
   return {
@@ -215,5 +326,6 @@ export function useRecordingControl() {
     resumeRecording,
     stopRecording,
     takeSnapshot,
+    debug,
   };
 }

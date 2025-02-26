@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useRecording } from "../../context/RecordingContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useZoom } from "../../context/ZoomContext";
@@ -12,11 +12,37 @@ export function VideoPlayback() {
     sessionId, 
     retrievedData, 
     overlayDot, 
-    setOverlayDot 
+    setOverlayDot,
+    recordedChunks
   } = useRecording();
   
   const { themeStyles } = useTheme();
   const { gridSizeX, dotSize } = useZoom();
+  const [videoError, setVideoError] = useState("");
+  const [videoInfo, setVideoInfo] = useState("");
+
+  // Log any video errors
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.onerror = (e) => {
+        console.error("Video error:", e);
+        setVideoError(`Error: ${videoRef.current?.error?.message || 'Unknown video error'}`);
+      };
+      
+      videoRef.current.onloadedmetadata = () => {
+        if (videoRef.current) {
+          setVideoInfo(`Video loaded: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+        }
+      };
+    }
+    
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.onerror = null;
+        videoRef.current.onloadedmetadata = null;
+      }
+    };
+  }, [videoRef]);
 
   function handleTimeUpdate() {
     if (!videoRef.current) return;
@@ -44,6 +70,25 @@ export function VideoPlayback() {
       pointerEvents: "none",
     };
   }
+
+  // Handle download manually
+  const handleDownload = () => {
+    if (!downloadURL) return;
+    
+    try {
+      const link = document.createElement("a");
+      link.href = downloadURL;
+      link.download = `recording-${sessionId || Date.now()}.webm`;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+    } catch (err) {
+      console.error("Download error:", err);
+      setVideoError(`Download error: ${err}`);
+    }
+  };
 
   if (!videoURL) return null;
 
@@ -79,8 +124,32 @@ export function VideoPlayback() {
         src={videoURL} 
         controls 
         onTimeUpdate={handleTimeUpdate} 
-        style={{ width: "100%", height: 540, background: themeStyles.gridBg }} 
+        style={{ width: "100%", height: 440, background: themeStyles.gridBg }} 
       />
+      
+      {videoError && (
+        <div style={{ 
+          color: '#ff3366', 
+          textAlign: 'center', 
+          marginTop: 10, 
+          padding: '5px 10px', 
+          backgroundColor: 'rgba(255,51,102,0.1)',
+          borderRadius: 8
+        }}>
+          {videoError}
+        </div>
+      )}
+      
+      {videoInfo && (
+        <div style={{ 
+          color: themeStyles.textColor, 
+          textAlign: 'center', 
+          fontSize: '0.8rem',
+          marginTop: 5
+        }}>
+          {videoInfo} • {recordedChunks.length} chunks
+        </div>
+      )}
       
       <div 
         style={{ position: "absolute", top: 60, left: 0, width: "100%", height: 540, pointerEvents: "none" }}
@@ -106,7 +175,7 @@ export function VideoPlayback() {
       
       <div style={{ position: "absolute", bottom: 30, left: 30, display: "flex", gap: 30 }}>
         <button 
-          onClick={() => videoRef.current?.play()} 
+          onClick={() => videoRef.current?.play().catch(e => console.error("Play error:", e))} 
           style={{ 
             ...buttonStyle(themeStyles.buttonBg, themeStyles.textColor), 
             boxShadow: `0 0 35px ${themeStyles.accentColor}80`, 
@@ -119,21 +188,20 @@ export function VideoPlayback() {
         </button>
         
         {downloadURL && (
-          <a 
-            href={downloadURL} 
-            download={`recording-${sessionId}.webm`} 
+          <button 
+            onClick={handleDownload} 
             style={{ 
               ...buttonStyle(themeStyles.accentColor, themeStyles.textColor), 
               boxShadow: `0 0 35px ${themeStyles.accentColor}80`, 
-              transition: "all 0.3s ease", 
+              transition: "all 0.3s ease",
               textDecoration: "none", 
-              lineHeight: "3.2rem" 
+              lineHeight: "1.2rem" 
             }} 
-            onMouseEnter={(e: any) => (e.currentTarget.style.boxShadow = `0 0 45px ${themeStyles.accentColor}`)} 
-            onMouseLeave={(e: any) => (e.currentTarget.style.boxShadow = `0 0 35px ${themeStyles.accentColor}80`)}
+            onMouseEnter={(e) => (e.currentTarget.style.boxShadow = `0 0 45px ${themeStyles.accentColor}`)} 
+            onMouseLeave={(e) => (e.currentTarget.style.boxShadow = `0 0 35px ${themeStyles.accentColor}80`)}
           >
             Download
-          </a>
+          </button>
         )}
       </div>
     </div>
